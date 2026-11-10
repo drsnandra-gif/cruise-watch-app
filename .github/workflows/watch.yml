@@ -1,0 +1,51 @@
+name: cruise-watch
+on:
+  schedule:
+    - cron: "17 */3 * * *"   # every 3 hours
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Send a test alert to my phone"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: cruise-watch
+  cancel-in-progress: false
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/cache@v4          # remembers sent alerts and the last good deals list
+        with:
+          path: |
+            seen.sqlite
+            site/deals.json
+          key: seen-${{ github.run_id }}
+          restore-keys: seen-
+      - run: python cruise_watch.py
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      - if: ${{ inputs.test_alert }}
+        run: python cruise_watch.py --test-notify
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      - uses: actions/configure-pages@v5
+        continue-on-error: true          # Pages not enabled yet: alerts still work
+        id: pages
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.pages.outcome == 'success'
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4
+        if: steps.pages.outcome == 'success'
+        id: deployment

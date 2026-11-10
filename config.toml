@@ -1,0 +1,138 @@
+# Cruise deal watcher configuration
+
+[party]
+adults = 4
+children = 1
+child_price_factor = 0.75   # 3rd/4th-guest and child fares are often discounted; tune to taste
+cabins = 2                  # 4 adults + 1 child usually needs 2 cabins (or 1 family suite)
+
+[notify]
+ntfy_topic = "CHANGE-ME-pick-a-long-random-string"   # install the free ntfy app, subscribe to this topic
+# Email is optional: set SMTP_HOST, SMTP_USER, SMTP_PASS, EMAIL_TO env vars to enable.
+
+[search]
+max_age_days = 14
+max_alerts_per_run = 8          # best deals first; the rest are recorded silently so one run never floods your phone
+max_alerts_per_destination = 2  # spread alerts across your destinations
+sheet_pause_seconds = 8         # gap between CruiseSheet requests; the site rate-limits fast scrapers
+unknown_nights_max_price = 600   # alert on "from $X" posts with no night count only if X <= this (per person)
+deal_words = ["sale", "deal", "from $", "per person", "pp", "price drop", "free", "flash", "kids sail free", "reduced"]
+
+# Sources: Google News RSS (stable, free) built from each destination's queries,
+# plus any extra RSS/Atom feeds you add. Verify extra feed URLs in a browser first.
+[[extra_feeds]]
+name = "Cruise Hive"
+url = "https://www.cruisehive.com/feed"
+
+[[extra_feeds]]
+name = "Cruise Fever"
+url = "https://cruisefever.net/feed/"
+
+# max_pp_night = most you'd pay per person per night (USD, cheapest cabin, double occupancy)
+[[destinations]]
+name = "Alaska"
+max_pp_night = 90
+keywords = ["alaska", "glacier bay", "inside passage", "juneau", "ketchikan", "skagway"]
+queries = ["Alaska cruise deal per person", "Alaska cruise sale kids sail free"]
+
+[[destinations]]
+name = "Mediterranean"
+max_pp_night = 85
+keywords = ["mediterranean", "greek isles", "barcelona", "rome civitavecchia", "venice", "italy cruise"]
+queries = ["Mediterranean cruise deal per person", "Greek Isles cruise sale"]
+
+[[destinations]]
+name = "Transatlantic"
+max_pp_night = 60
+keywords = ["transatlantic", "trans-atlantic", "repositioning"]
+queries = ["transatlantic cruise deal per person", "repositioning cruise deal"]
+
+[[destinations]]
+name = "Panama Canal"
+max_pp_night = 85
+keywords = ["panama canal"]
+queries = ["Panama Canal cruise deal per person", "Panama Canal cruise sale"]
+
+[[destinations]]
+name = "Tahiti"
+max_pp_night = 200
+keywords = ["tahiti", "bora bora", "french polynesia", "moorea", "society islands"]
+queries = ["Tahiti cruise deal per person", "French Polynesia cruise sale"]
+
+[[destinations]]
+name = "Antarctica"
+max_pp_night = 450
+keywords = ["antarctica", "antarctic peninsula", "drake passage"]
+queries = ["Antarctica cruise deal", "Antarctica expedition cruise last minute"]
+
+[[destinations]]
+name = "Japan"
+max_pp_night = 130
+keywords = ["japan cruise", "tokyo cruise", "yokohama", "osaka cruise", "japan and"]
+queries = ["Japan cruise deal per person", "Japan cruise sale 2027"]
+
+[[destinations]]
+name = "China"
+max_pp_night = 120
+keywords = ["china cruise", "shanghai cruise", "tianjin", "hong kong cruise", "asia cruise"]
+queries = ["China cruise deal per person", "Shanghai cruise sale"]
+
+# ---- CruiseSheet: real sailings with per-person fares (cheapest cabin class shown), cheapest per night first.
+# max_cpd = most you'd pay per person per night. keywords narrow a broad page to your destination. pages = how deep to look (15 sailings/page).
+[[cruisesheet]]
+name = "Alaska"
+path = "alaska"
+max_cpd = 100
+pages = 1
+
+[[cruisesheet]]
+name = "Mediterranean"
+path = "mediterranean"
+max_cpd = 90
+pages = 1
+
+[[cruisesheet]]
+name = "Transatlantic"
+path = "eastbound-transatlantic"
+max_cpd = 70
+pages = 1
+
+[[cruisesheet]]
+name = "Transatlantic"
+path = ""
+keywords = ["transatlantic", "repositioning"]
+max_cpd = 70
+pages = 4
+
+[[cruisesheet]]
+name = "Panama Canal"
+path = ""
+keywords = ["panama canal"]
+max_cpd = 90
+pages = 4
+
+[[cruisesheet]]
+name = "Tahiti"
+path = "south-pacific"
+keywords = ["tahiti", "papeete", "bora bora", "moorea", "polynesia"]
+max_cpd = 200
+pages = 4
+
+[[cruisesheet]]
+name = "Antarctica"
+path = "antarctica"
+max_cpd = 450
+pages = 1
+
+[[cruisesheet]]
+name = "Japan"
+path = "japan"
+max_cpd = 130
+pages = 1
+
+[[cruisesheet]]
+name = "China"
+path = "asia"
+keywords = ["china", "shanghai", "hong kong", "tianjin", "xiamen", "shenzhen", "guangzhou", "beijing", "qingdao", "dalian"]
+max_cpd = 120
+pages = 2

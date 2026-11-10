@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cruise Deals</title>
+<meta name="theme-color" content="#0b5c6b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<style>
+  :root { --bg:#f3f6f8; --card:#fff; --ink:#10232e; --mute:#5b6f7c; --line:#dbe4ea; --brand:#0b5c6b; --brand-ink:#fff; --good:#0a7d4f; --chip:#e3edf1; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0c1519; --card:#142229; --ink:#e8f0f3; --mute:#93a8b3; --line:#243640; --brand:#2aa3b8; --brand-ink:#04161b; --good:#4cd09a; --chip:#1b2f38; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; padding-bottom:env(safe-area-inset-bottom); }
+  header { padding:calc(14px + env(safe-area-inset-top)) 16px 10px; position:sticky; top:0; background:var(--bg); z-index:2; border-bottom:1px solid var(--line); }
+  h1 { font-size:20px; margin:0; }
+  .sub { color:var(--mute); font-size:13px; margin-top:2px; }
+  .stale { color:#b45309; font-weight:600; }
+  .row { display:flex; gap:8px; align-items:center; margin-top:10px; }
+  .chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; flex:1; scrollbar-width:none; }
+  .chips::-webkit-scrollbar { display:none; }
+  .chip { border:0; background:var(--chip); color:var(--ink); padding:7px 12px; border-radius:999px; font:inherit; font-size:14px; white-space:nowrap; cursor:pointer; }
+  .chip[aria-pressed="true"] { background:var(--brand); color:var(--brand-ink); font-weight:600; }
+  select, .install { font:inherit; font-size:14px; padding:7px 10px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  .install { background:var(--brand); color:var(--brand-ink); border:0; font-weight:600; display:none; cursor:pointer; }
+  main { padding:12px 16px 32px; max-width:720px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .top { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:6px; }
+  .badge { font-size:12px; font-weight:700; padding:3px 8px; border-radius:999px; background:var(--chip); }
+  .ribbon { background:var(--good); color:#fff; }
+  .title { font-size:17px; font-weight:700; margin:2px 0 4px; }
+  .meta, .route { color:var(--mute); font-size:14px; }
+  .route { margin-top:4px; }
+  .price { display:flex; align-items:baseline; gap:10px; margin-top:10px; flex-wrap:wrap; }
+  .big { font-size:26px; font-weight:800; }
+  .night { color:var(--good); font-weight:700; }
+  .est { color:var(--mute); font-size:13px; margin-top:2px; }
+  a.go { display:block; text-align:center; margin-top:12px; padding:11px; border-radius:10px; background:var(--brand); color:var(--brand-ink); font-weight:700; text-decoration:none; }
+  .empty, .note { color:var(--mute); text-align:center; padding:24px 8px; font-size:14px; }
+  .note { padding-top:4px; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cruise Deals</h1>
+  <div class="sub" id="sub">Loading…</div>
+  <div class="row">
+    <div class="chips" id="chips" role="group" aria-label="Destination"></div>
+    <select id="sort" aria-label="Sort by">
+      <option value="cpd">Cheapest / night</option>
+      <option value="price">Lowest price</option>
+      <option value="date">Soonest</option>
+    </select>
+    <button class="install" id="install">Install</button>
+  </div>
+</header>
+<main>
+  <div id="list"></div>
+  <p class="note">Fares are per person for the cheapest cabin class shown, before taxes, fees and gratuities. Family totals are estimates: confirm quad/family rates and cabin availability on the booking page.</p>
+</main>
+<script>
+(function () {
+  "use strict";
+  var state = { data: null, dest: "All", sort: "cpd" };
+  var $ = function (id) { return document.getElementById(id); };
+  var money = function (n) { return "$" + Math.round(n).toLocaleString("en-US"); };
+  var el = function (tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  function parseDate(s) { var t = Date.parse(s); return isNaN(t) ? 8.64e15 : t; }
+
+  function ago(iso) {
+    var mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+    if (mins < 2) return "just now";
+    if (mins < 90) return mins + " min ago";
+    var h = Math.round(mins / 60);
+    return h < 48 ? h + " h ago" : Math.round(h / 24) + " days ago";
+  }
+
+  function render() {
+    var d = state.data, list = $("list"), chips = $("chips");
+    list.textContent = ""; chips.textContent = "";
+    if (!d || !d.deals || !d.deals.length) {
+      list.appendChild(el("div", "empty", d ? "No deals under your limits right now. Check back after the next update." : "Couldn't load deals. Pull to refresh when you're online."));
+      return;
+    }
+    var counts = {};
+    d.deals.forEach(function (x) { counts[x.dest] = (counts[x.dest] || 0) + 1; });
+    ["All"].concat(Object.keys(counts).sort()).forEach(function (name) {
+      var b = el("button", "chip", name === "All" ? "All (" + d.deals.length + ")" : name + " (" + counts[name] + ")");
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(state.dest === name));
+      b.onclick = function () { state.dest = name; render(); };
+      chips.appendChild(b);
+    });
+    var rows = d.deals.filter(function (x) { return state.dest === "All" || x.dest === state.dest; });
+    var key = { cpd: function (x) { return x.cpd; }, price: function (x) { return x.price; }, date: function (x) { return parseDate(x.date); } }[state.sort];
+    rows.sort(function (a, b) { return key(a) - key(b); });
+    var p = d.party || {};
+    rows.forEach(function (x) {
+      var c = el("div", "card");
+      var top = el("div", "top");
+      top.appendChild(el("span", "badge", x.dest));
+      if (x.ribbon) top.appendChild(el("span", "badge ribbon", x.ribbon));
+      c.appendChild(top);
+      c.appendChild(el("div", "title", x.title));
+      c.appendChild(el("div", "meta", [x.date, [x.line, x.ship].filter(Boolean).join(" "), x.cabin && x.cabin + " cabin"].filter(Boolean).join("  ·  ")));
+      if (x.ports && x.ports.length > 1) c.appendChild(el("div", "route", x.ports.length > 4 ? x.ports[0] + " → … → " + x.ports[x.ports.length - 1] + " (" + x.ports.length + " ports)" : x.ports.join(" → ")));
+      var pr = el("div", "price");
+      pr.appendChild(el("span", "big", money(x.price)));
+      pr.appendChild(el("span", "meta", "per person"));
+      pr.appendChild(el("span", "night", money(x.cpd) + "/night"));
+      c.appendChild(pr);
+      if (x.est_total) c.appendChild(el("div", "est", "≈ " + money(x.est_total * 1) + " for " + ((p.adults || 4) + (p.children || 1)) + " (" + (p.adults || 4) + " adults + " + (p.children || 1) + " child), " + (p.cabins || 2) + " cabins, before taxes & fees"));
+      if (/^https:\/\/cruisesheet\.com\//.test(x.link)) {
+        var a = el("a", "go", "View deal →"); a.href = x.link; a.target = "_blank"; a.rel = "noopener noreferrer";
+        c.appendChild(a);
+      }
+      list.appendChild(c);
+    });
+    if (!rows.length) list.appendChild(el("div", "empty", "Nothing here."));
+  }
+
+  function header() {
+    var d = state.data, sub = $("sub");
+    sub.textContent = "";
+    if (!d) { sub.textContent = "Offline, no saved deals yet"; return; }
+    var hours = (Date.now() - Date.parse(d.updated)) / 36e5;
+    sub.appendChild(document.createTextNode(d.deals.length + " deals under your per-night limits · updated " + ago(d.updated)));
+    if (hours > 12) { var s = el("span", "stale", "  (older than usual)"); sub.appendChild(s); }
+  }
+
+  function load() {
+    fetch("deals.json", { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (j) { state.data = j; header(); render(); })
+      .catch(function () { header(); render(); });
+  }
+
+  $("sort").onchange = function (e) { state.sort = e.target.value; render(); };
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) load(); });
+
+  var deferred = null;
+  window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); deferred = e; $("install").style.display = "inline-block"; });
+  $("install").onclick = function () { if (deferred) { deferred.prompt(); deferred = null; $("install").style.display = "none"; } };
+
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(function () {});
+  load();
+})();
+</script>
+</body>
+</html>
