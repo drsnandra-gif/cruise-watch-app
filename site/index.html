@@ -17,7 +17,11 @@
   .sub { color:var(--mute); font-size:13px; margin-top:2px; }
   .stale { color:#b45309; font-weight:600; }
   .row { display:flex; gap:8px; align-items:center; margin-top:10px; }
-  .chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; flex:1; scrollbar-width:none; }
+  .chips { display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; flex:1; min-width:0; scrollbar-width:none; }
+  @media (max-width: 720px) {
+    .row { flex-wrap: wrap; }
+    .chips { flex: 1 1 100%; }
+  }
   .chips::-webkit-scrollbar { display:none; }
   .chip { border:0; background:var(--chip); color:var(--ink); padding:7px 12px; border-radius:999px; font:inherit; font-size:14px; white-space:nowrap; cursor:pointer; }
   .chip[aria-pressed="true"] { background:var(--brand); color:var(--brand-ink); font-weight:600; }
@@ -27,6 +31,7 @@
   .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
   .top { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:6px; }
   .badge { font-size:12px; font-weight:700; padding:3px 8px; border-radius:999px; background:var(--chip); }
+  .badge.balcony { background:var(--brand); color:var(--brand-ink); }
   .ribbon { background:var(--good); color:#fff; }
   .title { font-size:17px; font-weight:700; margin:2px 0 4px; }
   .meta, .route { color:var(--mute); font-size:14px; }
@@ -46,6 +51,7 @@
   <div class="sub" id="sub">Loading…</div>
   <div class="row">
     <div class="chips" id="chips" role="group" aria-label="Destination"></div>
+    <select id="cabin" aria-label="Cabin class"></select>
     <select id="sort" aria-label="Sort by">
       <option value="cpd">Cheapest / night</option>
       <option value="price">Lowest price</option>
@@ -56,12 +62,12 @@
 </header>
 <main>
   <div id="list"></div>
-  <p class="note">Fares are per person for the cheapest cabin class shown, before taxes, fees and gratuities. Family totals are estimates: confirm quad/family rates and cabin availability on the booking page.</p>
+  <p class="note" id="note">Fares are per person before taxes, fees and gratuities. Balcony is the cabin we ask for when the source supports it. A card labeled Balcony is that fare; any other cabin is the cheapest class, shown when no balcony under your nightly limit was listed. Family totals are estimates: confirm the cabin sleeps the whole family.</p>
 </main>
 <script>
 (function () {
   "use strict";
-  var state = { data: null, dest: "All", sort: "cpd" };
+  var state = { data: null, dest: "All", cabin: "All", sort: "cpd" };
   var $ = function (id) { return document.getElementById(id); };
   var money = function (n) { return "$" + Math.round(n).toLocaleString("en-US"); };
   var el = function (tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -75,10 +81,37 @@
     return h < 48 ? h + " h ago" : Math.round(h / 24) + " days ago";
   }
 
+  function partyBits(p) {
+    var a = p.adults != null ? p.adults : 2, k = p.children != null ? p.children : 2, c = p.cabins != null ? p.cabins : 1;
+    return {
+      adults: a, children: k, cabins: c,
+      label: a + " adult" + (a === 1 ? "" : "s") + " + " + k + " child" + (k === 1 ? "" : "ren"),
+      cabinsLabel: c + " cabin" + (c === 1 ? "" : "s")
+    };
+  }
+
+  function fillCabinSelect(deals) {
+    var sel = $("cabin"), counts = {};
+    deals.forEach(function (x) { var name = x.cabin || "Unknown"; counts[name] = (counts[name] || 0) + 1; });
+    var names = Object.keys(counts).sort();
+    if (names.indexOf(state.cabin) === -1) state.cabin = "All";
+    sel.textContent = "";
+    var all = document.createElement("option");
+    all.value = "All"; all.textContent = "All cabins (" + deals.length + ")";
+    sel.appendChild(all);
+    names.forEach(function (name) {
+      var o = document.createElement("option");
+      o.value = name; o.textContent = name + " (" + counts[name] + ")";
+      sel.appendChild(o);
+    });
+    sel.value = state.cabin;
+  }
+
   function render() {
     var d = state.data, list = $("list"), chips = $("chips");
     list.textContent = ""; chips.textContent = "";
     if (!d || !d.deals || !d.deals.length) {
+      if ($("cabin")) $("cabin").textContent = "";
       list.appendChild(el("div", "empty", d ? "No deals under your limits right now. Check back after the next update." : "Couldn't load deals. Pull to refresh when you're online."));
       return;
     }
@@ -91,25 +124,29 @@
       b.onclick = function () { state.dest = name; render(); };
       chips.appendChild(b);
     });
-    var rows = d.deals.filter(function (x) { return state.dest === "All" || x.dest === state.dest; });
+    fillCabinSelect(d.deals);
+    var rows = d.deals.filter(function (x) {
+      return (state.dest === "All" || x.dest === state.dest) && (state.cabin === "All" || x.cabin === state.cabin);
+    });
     var key = { cpd: function (x) { return x.cpd; }, price: function (x) { return x.price; }, date: function (x) { return parseDate(x.date); } }[state.sort];
     rows.sort(function (a, b) { return key(a) - key(b); });
-    var p = d.party || {};
+    var bits = partyBits(d.party || {});
     rows.forEach(function (x) {
       var c = el("div", "card");
       var top = el("div", "top");
       top.appendChild(el("span", "badge", x.dest));
+      if (x.cabin) top.appendChild(el("span", "badge" + (x.cabin === "Balcony" ? " balcony" : ""), x.cabin));
       if (x.ribbon) top.appendChild(el("span", "badge ribbon", x.ribbon));
       c.appendChild(top);
       c.appendChild(el("div", "title", x.title));
-      c.appendChild(el("div", "meta", [x.date, [x.line, x.ship].filter(Boolean).join(" "), x.cabin && x.cabin + " cabin"].filter(Boolean).join("  ·  ")));
+      c.appendChild(el("div", "meta", [x.date, [x.line, x.ship].filter(Boolean).join(" ")].filter(Boolean).join("  ·  ")));
       if (x.ports && x.ports.length > 1) c.appendChild(el("div", "route", x.ports.length > 4 ? x.ports[0] + " → … → " + x.ports[x.ports.length - 1] + " (" + x.ports.length + " ports)" : x.ports.join(" → ")));
       var pr = el("div", "price");
       pr.appendChild(el("span", "big", money(x.price)));
       pr.appendChild(el("span", "meta", "per person"));
       pr.appendChild(el("span", "night", money(x.cpd) + "/night"));
       c.appendChild(pr);
-      if (x.est_total) c.appendChild(el("div", "est", "≈ " + money(x.est_total * 1) + " for " + ((p.adults || 4) + (p.children || 1)) + " (" + (p.adults || 4) + " adults + " + (p.children || 1) + " child), " + (p.cabins || 2) + " cabins, before taxes & fees"));
+      if (x.est_total) c.appendChild(el("div", "est", "≈ " + money(x.est_total) + " for " + (bits.adults + bits.children) + " (" + bits.label + "), " + bits.cabinsLabel + ", before taxes & fees"));
       if (/^https:\/\/cruisesheet\.com\//.test(x.link)) {
         var a = el("a", "go", "View deal →"); a.href = x.link; a.target = "_blank"; a.rel = "noopener noreferrer";
         c.appendChild(a);
@@ -124,7 +161,8 @@
     sub.textContent = "";
     if (!d) { sub.textContent = "Offline, no saved deals yet"; return; }
     var hours = (Date.now() - Date.parse(d.updated)) / 36e5;
-    sub.appendChild(document.createTextNode(d.deals.length + " deals under your per-night limits · updated " + ago(d.updated)));
+    var pref = d.preferred_cabin ? " · " + d.preferred_cabin + " preferred" : "";
+    sub.appendChild(document.createTextNode(d.deals.length + " deals under your per-night limits" + pref + " · updated " + ago(d.updated)));
     if (hours > 12) { var s = el("span", "stale", "  (older than usual)"); sub.appendChild(s); }
   }
 
@@ -136,6 +174,7 @@
   }
 
   $("sort").onchange = function (e) { state.sort = e.target.value; render(); };
+  $("cabin").onchange = function (e) { state.cabin = e.target.value; render(); };
   document.addEventListener("visibilitychange", function () { if (!document.hidden) load(); });
 
   var deferred = null;

@@ -1,8 +1,8 @@
 # cruise-watch
 
-Polls cruise-deal news feeds for Tahiti, Alaska, Mediterranean, transatlantic, Panama Canal,
+Polls cruise-deal news feeds for Tahiti, Fiji, Alaska, Mediterranean, transatlantic, Panama Canal,
 Antarctica, Japan and China. Pushes a phone alert when a post advertises a fare under your
-per-person-per-night limit, with a rough total for 4 adults + 1 child. No dependencies (Python 3.11+).
+per-person-per-night limit, with a rough total for 2 adults + 2 children. No dependencies (Python 3.11+).
 
 ## Setup (5 minutes)
 1. Install the free **ntfy** app (iOS/Android), subscribe to a long random topic, e.g. `cruise-snandra-7f3k9q2x`.
@@ -21,7 +21,10 @@ Run tests with `python -m unittest discover -s tests`.
 
 ## Sources
 - **CruiseSheet** (main source): real sailings with the per-person fare and per-night price, cheapest first, one request per destination
-  (limits in `[[cruisesheet]]` in `config.toml`). Alerts on a new sailing under your limit, and again if a known sailing's price drops.
+  (limits in `[[cruisesheet]]` in `config.toml`). Listings are requested for the preferred cabin (`preferred_cabin`, balcony).
+  If a page has no cards in that class, the cheapest cabin is used instead, still under `max_cpd`.
+  `preferred_max_cpd` is the balcony budget; `max_cpd` remains the cheapest-cabin fallback budget.
+  Alerts on a new sailing under your limit, and again if a known sailing's price drops.
   At most `max_alerts_per_run` (default 5) alerts per run, best first; other matches are recorded silently.
 - **News feeds** (Google News, Cruise Hive, Cruise Fever): headlines only, so rarely priced. Kept as a backup.
 
@@ -32,8 +35,8 @@ Check the run log's `funnel:` line. `sheet_cards=0` means CruiseSheet could not 
 - It reads deal *headlines and summaries* (Google News RSS plus blogs), not live cruise-line inventory.
   Cruise lines publish no public price API and their sites block scrapers. Treat an alert as a lead,
   then confirm the sailing, cabin type and 3rd/4th-guest rate on the cruise line or a Vacations To Go / agent quote.
-- Headline "from $X" fares are usually per person, cheapest inside cabin, double occupancy, before taxes/fees (often $150-400 pp more)
-  and gratuities. The family total is an estimate only.
+- Headline "from $X" fares are usually per person, cheapest cabin, double occupancy, before taxes/fees (often $150-400 pp more)
+  and gratuities. CruiseSheet cards labeled Balcony are the balcony fare. The family total is an estimate only.
 - Fetching was not tested against live sites in the build environment (network blocked). The extra blog feed URLs
   are unverified, so open them in a browser; failed feeds just log a warning.
 

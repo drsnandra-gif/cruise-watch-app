@@ -16,11 +16,14 @@ concurrency:
   group: cruise-watch
   cancel-in-progress: false
 jobs:
+  # Upload and deploy must be separate jobs. actions/deploy-pages lists artifacts
+  # through the API, and an artifact uploaded in the still-running job is not
+  # visible yet ("No artifacts named github-pages were found"). needs: watch
+  # starts deploy only after that artifact is committed to the run.
   watch:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      pages_ready: ${{ steps.gate.outputs.ready }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,8 +47,26 @@ jobs:
         id: pages
       - uses: actions/upload-pages-artifact@v3
         if: steps.pages.outcome == 'success'
+        id: upload
         with:
           path: site
+      - id: gate
+        if: always()
+        run: |
+          pages="${{ steps.pages.outcome }}"
+          upload="${{ steps.upload.outcome }}"
+          if [ "$pages" = "success" ] && [ "$upload" = "success" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+  deploy:
+    needs: watch
+    if: needs.watch.result == 'success' && needs.watch.outputs.pages_ready == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - uses: actions/deploy-pages@v4
-        if: steps.pages.outcome == 'success'
         id: deployment

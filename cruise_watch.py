@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Watch cruise-deal feeds and push a notification when a family-of-5 deal looks cheap.
+"""Watch cruise-deal feeds and push a notification when a family deal looks cheap.
 
 Stdlib only (Python 3.11+). Run on a schedule: see README.md.
 """
@@ -48,6 +48,44 @@ def parse_date(s):
         except ValueError:
             return None
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+def _n(n, singular, plural=None):
+    word = singular if n == 1 else (plural or singular + "s")
+    return f"{n} {word}"
+
+
+def family_blurb(cfg, est):
+    """Rough total and cabin note. preferred_cabin is named when configured."""
+    p = cfg["party"]
+    pref = str((cfg.get("search") or {}).get("preferred_cabin") or "").strip()
+    cabin_note = f"Needs {_n(p['cabins'], 'cabin')}"
+    if pref:
+        cabin_note += f" ({pref} preferred)"
+    cabin_note += ", so confirm quad/family rates."
+    return (f"Rough family total ({_n(p['adults'], 'adult')} + "
+            f"{_n(p['children'], 'child', 'children')} at "
+            f"{int(p['child_price_factor']*100)}%): ~${est:,} before taxes/fees/gratuities. "
+            f"{cabin_note}")
+
+
+def preferred_cabin(cfg):
+    return str((cfg.get("search") or {}).get("preferred_cabin") or "").strip()
+
+
+def price_cap(entry, cabin, cfg):
+    """Budget for this card. Preferred-cabin fares use preferred_max_cpd when set."""
+    pref = preferred_cabin(cfg)
+    if pref and str(cabin or "").strip().lower() == pref.lower() and entry.get("preferred_max_cpd"):
+        return entry["preferred_max_cpd"]
+    return entry["max_cpd"]
+
+
+def fetch_cap(entry, cabin):
+    """Server-side max_cpd. Wide enough to include preferred-cabin fares when that class is requested."""
+    if cabin and entry.get("preferred_max_cpd"):
+        return entry["preferred_max_cpd"]
+    return entry["max_cpd"]
 
 
 def evaluate(item, cfg, stats=None):
@@ -121,9 +159,12 @@ def parse_cruisesheet(page):
     return out
 
 
-def sheet_url(entry, page):
+def sheet_url(entry, page, cabin=""):
     path = f"/cruises/{entry['path']}" if entry.get("path") else "/cruises"
-    return f"{SHEET}{path}?max_cpd={entry['max_cpd']}&rt=0&order=lowest_cpd&page={page}"
+    q = [("max_cpd", fetch_cap(entry, cabin)), ("rt", 0), ("order", "lowest_cpd"), ("page", page)]
+    if cabin:
+        q.append(("min_class", cabin.strip().lower()))  # CruiseSheet "Minimum Cabin Class"
+    return f"{SHEET}{path}?{urllib.parse.urlencode(q)}"
 
 
 def sheet_deals(entry, cards, cfg):
@@ -131,7 +172,8 @@ def sheet_deals(entry, cards, cfg):
     p = cfg["party"]
     deals = []
     for c in cards:
-        if c["cpd"] > entry["max_cpd"]:
+        cap = price_cap(entry, c.get("cabin"), cfg)
+        if c["cpd"] > cap:
             continue
         if kws and not any(k in f"{c['title']} {' '.join(c['ports'])}".lower() for k in kws):
             continue
@@ -139,40 +181,64 @@ def sheet_deals(entry, cards, cfg):
         route = " > ".join(c["ports"][:1] + (["..."] if len(c["ports"]) > 2 else []) + c["ports"][-1:]) if c["ports"] else ""
         title = f"Cruise deal: {entry['name']} ${c['price']:,}pp, ${c['cpd']:.0f}/night"
         body = (f"{c['title']}\n{c['date']} | {c['line']} {c['ship']} | {c['cabin']} cabin\n"
-                f"{route}\n${c['price']:,} per person = ${c['cpd']:.0f}/person/night (your limit ${entry['max_cpd']})"
+                f"{route}\n${c['price']:,} per person = ${c['cpd']:.0f}/person/night (your limit ${cap})"
                 + (f" | {c['ribbon']}" if c["ribbon"] else "") + "\n"
-                f"Rough family total ({p['adults']} adults + {p['children']} child at "
-                f"{int(p['child_price_factor']*100)}%): ~${est:,} before taxes/fees/gratuities. "
-                f"Needs {p['cabins']} cabins, so confirm quad/family rates.\n{c['link']}")
+                f"{family_blurb(cfg, est)}\n{c['link']}")
         nights = _first(r"(\d+)\s*Night", c["title"], re.I)
         deals.append(dict(dest=entry["name"], cpd=c["cpd"], price=c["price"], link=c["link"],
                           title_text=title, body_text=body, key=f"{c['link']}@{c['price']}",
                           info=dict(dest=entry["name"], title=c["title"], date=c["date"], line=c["line"],
                                     ship=c["ship"], cabin=c["cabin"], ribbon=c["ribbon"], ports=c["ports"],
                                     nights=int(nights) if nights else None, price=c["price"], cpd=c["cpd"],
-                                    est_total=est, max_cpd=entry["max_cpd"], link=c["link"])))
+                                    est_total=est, max_cpd=cap, link=c["link"])))
     return deals
 
 
 BACKOFF = 60  # seconds to wait after a 403/429 before the single retry
 
 
-def fetch_sheet_pages(entry, pause=8):
-    """Yield page HTML for one destination, cheapest per night first, stopping at the first page with no next link."""
+def sheet_blocked(html):
+    """True for a bot-check page rather than a CruiseSheet listing (empty or not)."""
+    low = (html or "").lower()
+    return any(s in low for s in (
+        "just a moment", "attention required", "cf-browser-verification",
+        "/cdn-cgi/challenge", "enable javascript and cookies"))
+
+
+def _download_sheet(entry, page, cabin):
+    """Return page HTML, or None after a hard failure. One 403/429 retry with BACKOFF."""
+    for attempt in (1, 2):
+        try:
+            return fetch(sheet_url(entry, page, cabin)).decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            if e.code in (403, 429) and attempt == 1:
+                time.sleep(BACKOFF)  # rate limited: back off once, then retry
+                continue
+            print(f"WARN CruiseSheet {entry['name']} p{page}: {e}", file=sys.stderr)
+            return None
+        except Exception as e:
+            print(f"WARN CruiseSheet {entry['name']} p{page}: {e}", file=sys.stderr)
+            return None
+    return None
+
+
+def fetch_sheet_pages(entry, pause=8, cabin=""):
+    """Yield page HTML for one destination, cheapest per night first, stopping at the first page with no next link.
+
+    When cabin is set, CruiseSheet is asked for that minimum class. A real listing with no
+    cards is refetched without the class filter so a source that only publishes the cheapest
+    cabin still yields deals. A block page is not refetched.
+    """
     for page in range(1, entry.get("pages", 2) + 1):
-        data = None
-        for attempt in (1, 2):
-            try:
-                data = fetch(sheet_url(entry, page)).decode("utf-8", "replace")
-                break
-            except urllib.error.HTTPError as e:
-                if e.code in (403, 429) and attempt == 1:
-                    time.sleep(BACKOFF)  # rate limited: back off once, then retry
-                    continue
-                print(f"WARN CruiseSheet {entry['name']} p{page}: {e}", file=sys.stderr)
-                return
-            except Exception as e:
-                print(f"WARN CruiseSheet {entry['name']} p{page}: {e}", file=sys.stderr)
+        data = _download_sheet(entry, page, cabin)
+        if data is None:
+            return
+        if cabin and not sheet_blocked(data) and not parse_cruisesheet(data):
+            print(f"INFO CruiseSheet {entry['name']} p{page}: no {cabin} cards under the limit, "
+                  f"using cheapest cabin", file=sys.stderr)
+            time.sleep(pause)  # same gap as any other extra CruiseSheet request
+            data = _download_sheet(entry, page, "")
+            if data is None:
                 return
         yield data
         if 'rel="next"' not in data:
@@ -183,15 +249,18 @@ def fetch_sheet_pages(entry, pause=8):
 def fetch_sheet_all(cfg, pause=None):
     """One fetch per page URL: destinations sharing a path share pages (widest limit and depth wins), each is filtered later."""
     pause = cfg["search"].get("sheet_pause_seconds", 8) if pause is None else pause
+    cabin = preferred_cabin(cfg)
     entries = cfg.get("cruisesheet", [])
     groups = {}
     for e in entries:
         g = groups.setdefault(e.get("path", ""), dict(name=e.get("path") or "all", path=e.get("path", ""), max_cpd=0, pages=0))
-        g["max_cpd"] = max(g["max_cpd"], e["max_cpd"])
+        # max_cpd on the shared request is already the widest cap, including preferred-cabin budgets.
+        # Leave preferred_max_cpd off the group so sheet_url does not narrow that shared request.
+        g["max_cpd"] = max(g["max_cpd"], fetch_cap(e, cabin))
         g["pages"] = max(g["pages"], e.get("pages", 2))
     cache = {}
     for path, g in groups.items():
-        cache[path] = list(fetch_sheet_pages(g, pause))
+        cache[path] = list(fetch_sheet_pages(g, pause, cabin=cabin))
         time.sleep(pause)
     return [(e, d) for e in entries for d in cache[e.get("path", "")]]
 
@@ -218,6 +287,7 @@ def write_site(path, infos, ok_dests, cfg, now=None):
     deals.sort(key=lambda d: d["cpd"])
     p = cfg["party"]
     out = dict(updated=now.isoformat(timespec="seconds"), deals=deals,
+               preferred_cabin=preferred_cabin(cfg),
                party=dict(adults=p["adults"], children=p["children"], cabins=p["cabins"],
                           child_price_factor=p["child_price_factor"]))
     Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -289,13 +359,13 @@ def sources(cfg):
 def message(deal, cfg):
     if deal.get("body_text"):
         return deal["title_text"], deal["body_text"]
-    p = cfg["party"]
     nights = f"{deal['nights']} nights" if deal["nights"] else "nights unknown"
+    pref = preferred_cabin(cfg)
+    pref_line = (f"\nCabin preference: {pref} (headline fares are usually the cheapest cabin)."
+                 if pref else "")
     body = (f"{deal['title']}\n{deal['dest']} | from ${deal['price']}/person | {nights}\n"
             f"{deal['verdict']}\n"
-            f"Rough family total ({p['adults']} adults + {p['children']} child, "
-            f"child at {int(p['child_price_factor']*100)}%): ~${deal['est_total']:,} before taxes/fees/gratuities. "
-            f"Needs {p['cabins']} cabins, so confirm quad/family rates.\n"
+            f"{family_blurb(cfg, deal['est_total'])}{pref_line}\n"
             f"Source: {deal['source']}\n{deal['link']}")
     return f"Cruise deal: {deal['dest']} ~${deal['price']}pp", body
 
