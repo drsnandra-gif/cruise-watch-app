@@ -1,10 +1,11 @@
 # Cruise deal watcher configuration
 
 [party]
-adults = 4
-children = 1
+adults = 2
+children = 2
 child_price_factor = 0.75   # 3rd/4th-guest and child fares are often discounted; tune to taste
-cabins = 2                  # 4 adults + 1 child usually needs 2 cabins (or 1 family suite)
+cabins = 1                  # one balcony that sleeps 4; some balconies sleep 2–3, so confirm a quad or a second cabin
+# Raj's family. Children born 2013-11-29 and 2018-02-14 (about 13 and 8–9 on 2027–2028 sailings).
 
 [notify]
 ntfy_topic = "CHANGE-ME-pick-a-long-random-string"   # install the free ntfy app, subscribe to this topic
@@ -16,7 +17,85 @@ max_alerts_per_run = 8          # best deals first; the rest are recorded silent
 max_alerts_per_destination = 2  # spread alerts across your destinations
 sheet_pause_seconds = 8         # gap between CruiseSheet requests; the site rate-limits fast scrapers
 unknown_nights_max_price = 600   # alert on "from $X" posts with no night count only if X <= this (per person)
+preferred_cabin = "Balcony"    # CruiseSheet minimum cabin class. Blank keeps the cheapest class on the card.
 deal_words = ["sale", "deal", "from $", "per person", "pp", "price drop", "free", "flash", "kids sail free", "reduced"]
+
+# NZ state and state-integrated school holidays (Ministry of Education).
+# Term breaks are the published fixed dates. Summer starts on the Ministry
+# "no later than" date, when every school is closed, and runs through the day
+# before the latest allowed start of the next year. 2029 term dates are not
+# published yet, so Dec 2028 is six weeks (the Ministry's "5 or 6 weeks").
+# alerts_only = true limits ntfy to sailings that overlap one of these windows.
+# The app still lists every deal until the "NZ school holidays" chip is on.
+# Source: https://www.education.govt.nz/school-terms-and-holidays-dates
+# 2027–2028 also in NZ Gazette notice 2025-sl5849.
+[school_holidays]
+alerts_only = false
+
+[[school_holidays.windows]]
+name = "Dec 2025–Jan 2026"
+start = "2025-12-20"
+end = "2026-02-08"
+
+[[school_holidays.windows]]
+name = "Apr 2026"
+start = "2026-04-03"
+end = "2026-04-19"
+
+[[school_holidays.windows]]
+name = "Jul 2026"
+start = "2026-07-04"
+end = "2026-07-19"
+
+[[school_holidays.windows]]
+name = "Sep–Oct 2026"
+start = "2026-09-26"
+end = "2026-10-11"
+
+[[school_holidays.windows]]
+name = "Dec 2026–Jan 2027"
+start = "2026-12-19"
+end = "2027-02-02"
+
+[[school_holidays.windows]]
+name = "Apr 2027"
+start = "2027-04-10"
+end = "2027-04-26"
+
+[[school_holidays.windows]]
+name = "Jul 2027"
+start = "2027-07-03"
+end = "2027-07-18"
+
+[[school_holidays.windows]]
+name = "Sep–Oct 2027"
+start = "2027-09-25"
+end = "2027-10-10"
+
+[[school_holidays.windows]]
+name = "Dec 2027–Jan 2028"
+start = "2027-12-18"
+end = "2028-02-07"
+
+[[school_holidays.windows]]
+name = "Apr 2028"
+start = "2028-04-14"
+end = "2028-04-30"
+
+[[school_holidays.windows]]
+name = "Jul 2028"
+start = "2028-07-08"
+end = "2028-07-23"
+
+[[school_holidays.windows]]
+name = "Sep–Oct 2028"
+start = "2028-09-30"
+end = "2028-10-15"
+
+[[school_holidays.windows]]
+name = "Dec 2028–Jan 2029"
+start = "2028-12-16"
+end = "2029-01-26"
 
 # Sources: Google News RSS (stable, free) built from each destination's queries,
 # plus any extra RSS/Atom feeds you add. Verify extra feed URLs in a browser first.
@@ -77,24 +156,36 @@ max_pp_night = 120
 keywords = ["china cruise", "shanghai cruise", "tianjin", "hong kong cruise", "asia cruise"]
 queries = ["China cruise deal per person", "Shanghai cruise sale"]
 
-# ---- CruiseSheet: real sailings with per-person fares (cheapest cabin class shown), cheapest per night first.
-# max_cpd = most you'd pay per person per night. keywords narrow a broad page to your destination. pages = how deep to look (15 sailings/page).
+[[destinations]]
+name = "Fiji"
+max_pp_night = 160
+keywords = ["fiji", "suva", "lautoka", "denarau", "nadi"]
+queries = ["Fiji cruise deal per person", "Fiji South Pacific cruise sale"]
+
+# ---- CruiseSheet: real sailings with per-person fares, cheapest per night first.
+# preferred_cabin (above) is requested via min_class. max_cpd is the cheapest-cabin
+# fallback budget; preferred_max_cpd is the budget for that cabin class. A page with
+# no preferred-cabin cards is refetched without min_class, then kept only if it is
+# still under max_cpd. keywords narrow a broad page. pages = how deep to look (15 sailings/page).
 [[cruisesheet]]
 name = "Alaska"
 path = "alaska"
 max_cpd = 100
+preferred_max_cpd = 160   # balcony fares on this page start around $131/night
 pages = 1
 
 [[cruisesheet]]
 name = "Mediterranean"
 path = "mediterranean"
 max_cpd = 90
+preferred_max_cpd = 140
 pages = 1
 
 [[cruisesheet]]
 name = "Transatlantic"
 path = "eastbound-transatlantic"
 max_cpd = 70
+preferred_max_cpd = 120
 pages = 1
 
 [[cruisesheet]]
@@ -102,6 +193,7 @@ name = "Transatlantic"
 path = ""
 keywords = ["transatlantic", "repositioning"]
 max_cpd = 70
+preferred_max_cpd = 120
 pages = 4
 
 [[cruisesheet]]
@@ -109,6 +201,7 @@ name = "Panama Canal"
 path = ""
 keywords = ["panama canal"]
 max_cpd = 90
+preferred_max_cpd = 140
 pages = 4
 
 [[cruisesheet]]
@@ -128,6 +221,7 @@ pages = 1
 name = "Japan"
 path = "japan"
 max_cpd = 130
+preferred_max_cpd = 200
 pages = 1
 
 [[cruisesheet]]
@@ -135,4 +229,13 @@ name = "China"
 path = "asia"
 keywords = ["china", "shanghai", "hong kong", "tianjin", "xiamen", "shenzhen", "guangzhou", "beijing", "qingdao", "dalian"]
 max_cpd = 120
+preferred_max_cpd = 180
 pages = 2
+
+[[cruisesheet]]
+name = "Fiji"
+path = "south-pacific"    # CruiseSheet has no /cruises/fiji path; Fiji sailings sit in South Pacific
+keywords = ["fiji", "suva", "lautoka", "denarau", "nadi"]
+max_cpd = 140
+preferred_max_cpd = 180
+pages = 4
