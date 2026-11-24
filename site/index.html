@@ -32,6 +32,8 @@
   .top { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:6px; }
   .badge { font-size:12px; font-weight:700; padding:3px 8px; border-radius:999px; background:var(--chip); }
   .badge.balcony { background:var(--brand); color:var(--brand-ink); }
+  .badge.holiday { background:#f4e1b5; color:#6a3e00; }
+  @media (prefers-color-scheme: dark) { .badge.holiday { background:#5c4314; color:#ffe7b3; } }
   .ribbon { background:var(--good); color:#fff; }
   .title { font-size:17px; font-weight:700; margin:2px 0 4px; }
   .meta, .route { color:var(--mute); font-size:14px; }
@@ -67,7 +69,7 @@
 <script>
 (function () {
   "use strict";
-  var state = { data: null, dest: "All", cabin: "All", sort: "cpd" };
+  var state = { data: null, dest: "All", cabin: "All", sort: "cpd", holiday: false };
   var $ = function (id) { return document.getElementById(id); };
   var money = function (n) { return "$" + Math.round(n).toLocaleString("en-US"); };
   var el = function (tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -115,6 +117,12 @@
       list.appendChild(el("div", "empty", d ? "No deals under your limits right now. Check back after the next update." : "Couldn't load deals. Pull to refresh when you're online."));
       return;
     }
+    var holidayCount = d.deals.filter(function (x) { return x.school_holiday; }).length;
+    var holiday = el("button", "chip", "NZ school holidays (" + holidayCount + ")");
+    holiday.type = "button";
+    holiday.setAttribute("aria-pressed", String(!!state.holiday));
+    holiday.onclick = function () { state.holiday = !state.holiday; render(); };
+    chips.appendChild(holiday);
     var counts = {};
     d.deals.forEach(function (x) { counts[x.dest] = (counts[x.dest] || 0) + 1; });
     ["All"].concat(Object.keys(counts).sort()).forEach(function (name) {
@@ -126,7 +134,7 @@
     });
     fillCabinSelect(d.deals);
     var rows = d.deals.filter(function (x) {
-      return (state.dest === "All" || x.dest === state.dest) && (state.cabin === "All" || x.cabin === state.cabin);
+      return (state.dest === "All" || x.dest === state.dest) && (state.cabin === "All" || x.cabin === state.cabin) && (!state.holiday || x.school_holiday);
     });
     var key = { cpd: function (x) { return x.cpd; }, price: function (x) { return x.price; }, date: function (x) { return parseDate(x.date); } }[state.sort];
     rows.sort(function (a, b) { return key(a) - key(b); });
@@ -136,6 +144,7 @@
       var top = el("div", "top");
       top.appendChild(el("span", "badge", x.dest));
       if (x.cabin) top.appendChild(el("span", "badge" + (x.cabin === "Balcony" ? " balcony" : ""), x.cabin));
+      if (x.school_holiday) top.appendChild(el("span", "badge holiday", (x.school_holidays && x.school_holidays.length) ? x.school_holidays.join(", ") : "NZ school holiday"));
       if (x.ribbon) top.appendChild(el("span", "badge ribbon", x.ribbon));
       c.appendChild(top);
       c.appendChild(el("div", "title", x.title));
@@ -153,7 +162,7 @@
       }
       list.appendChild(c);
     });
-    if (!rows.length) list.appendChild(el("div", "empty", "Nothing here."));
+    if (!rows.length) list.appendChild(el("div", "empty", state.holiday ? "No NZ school-holiday sailings in this view. Turn the filter off to see every deal." : "Nothing here."));
   }
 
   function header() {

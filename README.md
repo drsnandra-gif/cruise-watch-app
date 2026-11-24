@@ -17,6 +17,7 @@ per-person-per-night limit, with a rough total for 2 adults + 2 children. No dep
 
 ## Tuning
 Edit `config.toml`: `max_pp_night` per destination, `child_price_factor`, more `queries`, extra RSS feeds.
+NZ school-holiday windows are `[school_holidays]` (Ministry of Education dates for 2026–2028). Each sailing that overlaps a window is tagged in `deals.json`. The app's **NZ school holidays** chip shows only those sailings; leaving it off keeps the full list. Set `alerts_only = true` to limit ntfy to holiday overlaps. News headlines have no departure date, so they are not holiday-filtered.
 Run tests with `python -m unittest discover -s tests`.
 
 ## Sources

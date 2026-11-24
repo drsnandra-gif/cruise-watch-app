@@ -1,5 +1,5 @@
 // Shell is cached for instant/offline open; deals.json is always tried on the network first.
-const SHELL = "cruise-shell-v2";
+const SHELL = "cruise-shell-v3";
 const FILES = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {

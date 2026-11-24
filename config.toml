@@ -20,6 +20,83 @@ unknown_nights_max_price = 600   # alert on "from $X" posts with no night count 
 preferred_cabin = "Balcony"    # CruiseSheet minimum cabin class. Blank keeps the cheapest class on the card.
 deal_words = ["sale", "deal", "from $", "per person", "pp", "price drop", "free", "flash", "kids sail free", "reduced"]
 
+# NZ state and state-integrated school holidays (Ministry of Education).
+# Term breaks are the published fixed dates. Summer starts on the Ministry
+# "no later than" date, when every school is closed, and runs through the day
+# before the latest allowed start of the next year. 2029 term dates are not
+# published yet, so Dec 2028 is six weeks (the Ministry's "5 or 6 weeks").
+# alerts_only = true limits ntfy to sailings that overlap one of these windows.
+# The app still lists every deal until the "NZ school holidays" chip is on.
+# Source: https://www.education.govt.nz/school-terms-and-holidays-dates
+# 2027–2028 also in NZ Gazette notice 2025-sl5849.
+[school_holidays]
+alerts_only = false
+
+[[school_holidays.windows]]
+name = "Dec 2025–Jan 2026"
+start = "2025-12-20"
+end = "2026-02-08"
+
+[[school_holidays.windows]]
+name = "Apr 2026"
+start = "2026-04-03"
+end = "2026-04-19"
+
+[[school_holidays.windows]]
+name = "Jul 2026"
+start = "2026-07-04"
+end = "2026-07-19"
+
+[[school_holidays.windows]]
+name = "Sep–Oct 2026"
+start = "2026-09-26"
+end = "2026-10-11"
+
+[[school_holidays.windows]]
+name = "Dec 2026–Jan 2027"
+start = "2026-12-19"
+end = "2027-02-02"
+
+[[school_holidays.windows]]
+name = "Apr 2027"
+start = "2027-04-10"
+end = "2027-04-26"
+
+[[school_holidays.windows]]
+name = "Jul 2027"
+start = "2027-07-03"
+end = "2027-07-18"
+
+[[school_holidays.windows]]
+name = "Sep–Oct 2027"
+start = "2027-09-25"
+end = "2027-10-10"
+
+[[school_holidays.windows]]
+name = "Dec 2027–Jan 2028"
+start = "2027-12-18"
+end = "2028-02-07"
+
+[[school_holidays.windows]]
+name = "Apr 2028"
+start = "2028-04-14"
+end = "2028-04-30"
+
+[[school_holidays.windows]]
+name = "Jul 2028"
+start = "2028-07-08"
+end = "2028-07-23"
+
+[[school_holidays.windows]]
+name = "Sep–Oct 2028"
+start = "2028-09-30"
+end = "2028-10-15"
+
+[[school_holidays.windows]]
+name = "Dec 2028–Jan 2029"
+start = "2028-12-16"
+end = "2029-01-26"
+
 # Sources: Google News RSS (stable, free) built from each destination's queries,
 # plus any extra RSS/Atom feeds you add. Verify extra feed URLs in a browser first.
 [[extra_feeds]]

@@ -167,6 +167,60 @@ def sheet_url(entry, page, cabin=""):
     return f"{SHEET}{path}?{urllib.parse.urlencode(q)}"
 
 
+def holiday_windows(cfg):
+    """Inclusive NZ school-holiday windows from config. Bad rows are skipped."""
+    block = cfg.get("school_holidays") or {}
+    out = []
+    for w in block.get("windows") or []:
+        try:
+            start = datetime.strptime(w["start"], "%Y-%m-%d").date()
+            end = datetime.strptime(w["end"], "%Y-%m-%d").date()
+        except (KeyError, TypeError, ValueError):
+            continue
+        if end < start:
+            continue
+        out.append(dict(name=str(w.get("name") or f"{start.isoformat()}–{end.isoformat()}"),
+                        start=start, end=end))
+    return out
+
+
+def matching_holidays(date_str, nights, cfg):
+    """Names of holiday windows the sailing overlaps, in config order.
+
+    The sailing runs from the departure date through nights-1 days later.
+    A missing night count is one day, so only the departure date is tested.
+    """
+    try:
+        start = datetime.strptime(date_str or "", "%B %d, %Y").date()
+    except (TypeError, ValueError):
+        return []
+    try:
+        n = int(nights) if nights else 1
+    except (TypeError, ValueError):
+        n = 1
+    if n < 1:
+        n = 1
+    end = start + timedelta(days=n - 1)
+    return [w["name"] for w in holiday_windows(cfg) if start <= w["end"] and w["start"] <= end]
+
+
+def tag_deal(deal, cfg):
+    """Mark whether this sailing overlaps an NZ school holiday."""
+    names = matching_holidays(deal.get("date"), deal.get("nights"), cfg)
+    deal["school_holiday"] = bool(names)
+    deal["school_holidays"] = names
+    return deal
+
+
+def alert_eligible(deal, cfg):
+    """News items have no departure date and stay eligible. Sheet deals can be holiday-only."""
+    if not (cfg.get("school_holidays") or {}).get("alerts_only"):
+        return True
+    if "school_holiday" not in deal:
+        return True
+    return bool(deal["school_holiday"])
+
+
 def sheet_deals(entry, cards, cfg):
     kws = [k.lower() for k in entry.get("keywords", [])]
     p = cfg["party"]
@@ -179,18 +233,24 @@ def sheet_deals(entry, cards, cfg):
             continue
         est = round(c["price"] * (p["adults"] + p["children"] * p["child_price_factor"]))
         route = " > ".join(c["ports"][:1] + (["..."] if len(c["ports"]) > 2 else []) + c["ports"][-1:]) if c["ports"] else ""
+        nights = _first(r"(\d+)\s*Night", c["title"], re.I)
+        nights = int(nights) if nights else None
+        hol = matching_holidays(c["date"], nights, cfg)
         title = f"Cruise deal: {entry['name']} ${c['price']:,}pp, ${c['cpd']:.0f}/night"
         body = (f"{c['title']}\n{c['date']} | {c['line']} {c['ship']} | {c['cabin']} cabin\n"
                 f"{route}\n${c['price']:,} per person = ${c['cpd']:.0f}/person/night (your limit ${cap})"
                 + (f" | {c['ribbon']}" if c["ribbon"] else "") + "\n"
-                f"{family_blurb(cfg, est)}\n{c['link']}")
-        nights = _first(r"(\d+)\s*Night", c["title"], re.I)
+                f"{family_blurb(cfg, est)}\n"
+                + (f"NZ school holiday: {', '.join(hol)}.\n" if hol else "")
+                + c["link"])
+        info = dict(dest=entry["name"], title=c["title"], date=c["date"], line=c["line"],
+                    ship=c["ship"], cabin=c["cabin"], ribbon=c["ribbon"], ports=c["ports"],
+                    nights=nights, price=c["price"], cpd=c["cpd"],
+                    est_total=est, max_cpd=cap, link=c["link"],
+                    school_holiday=bool(hol), school_holidays=hol)
         deals.append(dict(dest=entry["name"], cpd=c["cpd"], price=c["price"], link=c["link"],
                           title_text=title, body_text=body, key=f"{c['link']}@{c['price']}",
-                          info=dict(dest=entry["name"], title=c["title"], date=c["date"], line=c["line"],
-                                    ship=c["ship"], cabin=c["cabin"], ribbon=c["ribbon"], ports=c["ports"],
-                                    nights=int(nights) if nights else None, price=c["price"], cpd=c["cpd"],
-                                    est_total=est, max_cpd=cap, link=c["link"])))
+                          school_holiday=bool(hol), school_holidays=hol, info=info))
     return deals
 
 
@@ -283,11 +343,15 @@ def write_site(path, infos, ok_dests, cfg, now=None):
             pass
         if d["link"] + str(d["price"]) not in seen:
             seen.add(d["link"] + str(d["price"]))
-            deals.append(d)
+            deals.append(tag_deal(d, cfg))
     deals.sort(key=lambda d: d["cpd"])
     p = cfg["party"]
+    windows = [dict(name=w["name"], start=w["start"].isoformat(), end=w["end"].isoformat())
+               for w in holiday_windows(cfg)]
     out = dict(updated=now.isoformat(timespec="seconds"), deals=deals,
                preferred_cabin=preferred_cabin(cfg),
+               school_holidays=dict(alerts_only=bool((cfg.get("school_holidays") or {}).get("alerts_only")),
+                                    windows=windows),
                party=dict(adults=p["adults"], children=p["children"], cabins=p["cabins"],
                           child_price_factor=p["child_price_factor"]))
     Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -316,7 +380,7 @@ def run_sheets(cfg, db, pages=None, dry_run=False, send=None, stats=None, site_j
     per_dest = cfg["search"].get("max_alerts_per_destination", 2)
     chosen, count = [], {}
     for d in fresh:  # cheapest per night first, but spread across destinations
-        if len(chosen) < cap and count.get(d["dest"], 0) < per_dest:
+        if len(chosen) < cap and count.get(d["dest"], 0) < per_dest and alert_eligible(d, cfg):
             chosen.append(d)
             count[d["dest"]] = count.get(d["dest"], 0) + 1
     sent = []

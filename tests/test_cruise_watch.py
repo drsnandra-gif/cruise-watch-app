@@ -230,6 +230,62 @@ class SheetTests(unittest.TestCase):
         self.assertEqual(pages, [])
         self.assertEqual(len(calls), 2)  # one retry after 403, then stop
 
+    def test_nz_school_holiday_overlap(self):
+        self.assertEqual(cw.matching_holidays("July 10, 2027", 7, CFG), ["Jul 2027"])
+        # departs before the break and runs into it
+        self.assertEqual(cw.matching_holidays("June 28, 2027", 7, CFG), ["Jul 2027"])
+        # ends the day before the break starts
+        self.assertEqual(cw.matching_holidays("June 26, 2027", 7, CFG), [])
+        self.assertEqual(cw.matching_holidays("July 18, 2027", 3, CFG), ["Jul 2027"])
+        self.assertEqual(cw.matching_holidays("July 19, 2027", 5, CFG), [])
+        self.assertEqual(cw.matching_holidays("December 28, 2027", 10, CFG), ["Dec 2027–Jan 2028"])
+        self.assertEqual(cw.matching_holidays("April 12, 2027", 4, CFG), ["Apr 2027"])
+        self.assertEqual(cw.matching_holidays("October 1, 2027", 5, CFG), ["Sep–Oct 2027"])
+        self.assertEqual(cw.matching_holidays("April 16, 2026", 2, CFG), ["Apr 2026"])
+        self.assertEqual(cw.matching_holidays("July 14, 2028", 4, CFG), ["Jul 2028"])
+        self.assertEqual(cw.matching_holidays("December 20, 2028", 14, CFG), ["Dec 2028–Jan 2029"])
+        # a long sailing can cross two breaks
+        self.assertEqual(cw.matching_holidays("July 10, 2027", 100, CFG), ["Jul 2027", "Sep–Oct 2027"])
+        self.assertEqual(cw.matching_holidays("not a date", 7, CFG), [])
+        self.assertEqual(cw.matching_holidays("July 3, 2027", None, CFG), ["Jul 2027"])
+        self.assertEqual(cw.matching_holidays("July 2, 2027", None, CFG), [])
+        # summer starts 19 Dec 2026: a 5-night cruise on the 13th ends the 17th
+        self.assertEqual(cw.matching_holidays("December 13, 2026", 5, CFG), [])
+        self.assertEqual(cw.matching_holidays("December 13, 2026", 8, CFG), ["Dec 2026–Jan 2027"])
+
+    def test_deals_are_tagged_and_alerts_can_require_holidays(self):
+        import json
+        e = dict(name="X", max_cpd=100000)
+        deals = cw.sheet_deals(e, cw.parse_cruisesheet(FIXTURE), CFG)
+        by_date = {d["info"]["date"]: d for d in deals}
+        summer = by_date["December 19, 2026"]
+        self.assertTrue(summer["school_holiday"])
+        self.assertEqual(summer["school_holidays"], ["Dec 2026–Jan 2027"])
+        self.assertIn("NZ school holiday: Dec 2026–Jan 2027", summer["body_text"])
+        term = by_date["December 13, 2026"]
+        self.assertFalse(term["school_holiday"])
+        self.assertEqual(term["school_holidays"], [])
+        self.assertNotIn("NZ school holiday", term["body_text"])
+        path = f"{self.tmp.name}/site/deals.json"
+        cw.write_site(path, [d["info"] for d in deals], {"X"}, CFG)
+        saved = json.load(open(path))
+        self.assertIn("Dec 2026–Jan 2027", [w["name"] for w in saved["school_holidays"]["windows"]])
+        self.assertFalse(saved["school_holidays"]["alerts_only"])
+        tagged = {d["date"]: d["school_holiday"] for d in saved["deals"]}
+        self.assertTrue(tagged["December 19, 2026"])
+        self.assertFalse(tagged["December 13, 2026"])
+        # news items have no departure date, so holiday-only mode still allows them
+        self.assertTrue(cw.alert_eligible(dict(dest="News"), dict(CFG, school_holidays=dict(alerts_only=True))))
+        self.assertFalse(cw.alert_eligible(dict(school_holiday=False), dict(CFG, school_holidays=dict(alerts_only=True))))
+        sent = []
+        cfg = self.cfg(5)
+        cfg["school_holidays"] = dict(CFG["school_holidays"], alerts_only=True)
+        cw.run_sheets(cfg, self.db, pages=[(e, FIXTURE)], send=lambda d, c: sent.append(d))
+        self.assertTrue(sent)
+        self.assertTrue(all(d["school_holiday"] for d in sent))
+        self.assertNotIn("December 13, 2026", [d["info"]["date"] for d in sent])
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM seen").fetchone()[0], 4)
+
 
 if __name__ == "__main__":
     unittest.main()
